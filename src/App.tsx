@@ -1,104 +1,136 @@
 import { useState } from "react";
 import {
-  sha256,
-  aesEncrypt,
-  aesDecrypt,
-  generateAesKey,
-  exportAesKey,
-  importAesKey,
-  generateRsaKeyPair,
-  exportRsaPublicKey,
-  exportRsaPrivateKey,
-  importRsaPublicKey,
-  importRsaPrivateKey,
-  rsaEncrypt,
-  rsaDecrypt
+  // AES varyantları (crypto.ts’de ekledik)
+  aesEncrypt, aesDecrypt,            // AES-GCM (parola bazlı)
+  aesCbcEncrypt, aesCbcDecrypt,      // AES-CBC  (parola bazlı)
+  aesCtrEncrypt, aesCtrDecrypt,      // AES-CTR  (parola bazlı)
+
+  // RSA & Hash
+  generateRsaKeyPair, exportRsaPublicKey, exportRsaPrivateKey,
+  importRsaPublicKey, importRsaPrivateKey,
+  rsaEncrypt, rsaDecrypt,
+  sha256
 } from "./utils/crypto";
 
+type Tab = "aes" | "rsa" | "hash";
+type Algo = "AES-GCM" | "AES-CBC" | "AES-CTR";
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState("aes");
-  
-  // AES State'leri
-  const [aesPlainText, setAesPlainText] = useState("");
-  const [aesCipherText, setAesCipherText] = useState("");
-  const [aesIv, setAesIv] = useState("");
-  const [aesKeyBase64, setAesKeyBase64] = useState("");
-  const [aesDecryptedText, setAesDecryptedText] = useState("");
-  
-  // RSA State'leri
+  const [activeTab, setActiveTab] = useState<Tab>("aes");
+
+  // --- AES ortak durumlar ---
+  const [algo, setAlgo] = useState<Algo>("AES-GCM");
+  const [password, setPassword] = useState("");
+
+  // ŞİFRELE paneli
+  const [plain, setPlain] = useState("");
+  const [encCiphertext, setEncCiphertext] = useState("");
+  const [encIv, setEncIv] = useState("");
+  const [encSalt, setEncSalt] = useState("");
+
+  // ÇÖZ paneli
+  const [decCiphertext, setDecCiphertext] = useState("");
+  const [decIv, setDecIv] = useState("");
+  const [decSalt, setDecSalt] = useState("");
+  const [decrypted, setDecrypted] = useState("");
+
+  // --- RSA ---
   const [rsaPlainText, setRsaPlainText] = useState("");
   const [rsaCipherText, setRsaCipherText] = useState("");
   const [rsaPublicKey, setRsaPublicKey] = useState("");
   const [rsaPrivateKey, setRsaPrivateKey] = useState("");
   const [rsaDecryptedText, setRsaDecryptedText] = useState("");
-  
-  // Hash State
+
+  // --- HASH ---
   const [hashText, setHashText] = useState("");
   const [hash, setHash] = useState("");
 
-  // AES Fonksiyonları
-  const handleGenerateAesKey = async () => {
-    const key = await generateAesKey();
-    const exported = await exportAesKey(key);
-    setAesKeyBase64(exported);
-    alert("🔑 AES anahtarı oluşturuldu!");
+  // AES fonksiyon haritaları (imzalar crypto.ts ile birebir)
+  const encryptMap: Record<Algo, (t: string, p: string) => Promise<{ ciphertext: string; iv: string; salt: string }>> = {
+    "AES-GCM": aesEncrypt,
+    "AES-CBC": aesCbcEncrypt,
+    "AES-CTR": aesCtrEncrypt
+  };
+  const decryptMap: Record<Algo, (pl: { ciphertext: string; iv: string; salt: string }, p: string) => Promise<string>> = {
+    "AES-GCM": aesDecrypt,
+    "AES-CBC": aesCbcDecrypt,
+    "AES-CTR": aesCtrDecrypt
   };
 
-  const handleAesEncrypt = async () => {
-    if (!aesKeyBase64) return alert("⚠️ Önce AES anahtarı oluştur!");
-    const key = await importAesKey(aesKeyBase64);
-    const { iv, cipher } = await aesEncrypt(aesPlainText, key);
-    setAesIv(iv);
-    setAesCipherText(cipher);
+  // --- AES handlers ---
+  const handleEncrypt = async () => {
+    if (!plain) return alert("⚠️ Metin gir.");
+    if (!password) return alert("⚠️ Parola gir.");
+    const { ciphertext, iv, salt } = await encryptMap[algo](plain, password);
+    setEncCiphertext(ciphertext);
+    setEncIv(iv);
+    setEncSalt(salt);
+
+    // Çöz paneline otomatik kopyala (kullanışlı)
+    setDecCiphertext(ciphertext);
+    setDecIv(iv);
+    setDecSalt(salt);
   };
 
-  const handleAesDecrypt = async () => {
-    if (!aesKeyBase64 || !aesCipherText || !aesIv) return alert("⚠️ Eksik veri!");
-    const key = await importAesKey(aesKeyBase64);
-    const text = await aesDecrypt(aesIv, aesCipherText, key);
-    setAesDecryptedText(text);
+  const handleDecrypt = async () => {
+    if (!decCiphertext || !decIv || !decSalt) return alert("⚠️ Çözülecek payload eksik.");
+    if (!password) return alert("⚠️ Parola gir.");
+    try {
+      const text = await decryptMap[algo]({ ciphertext: decCiphertext, iv: decIv, salt: decSalt }, password);
+      setDecrypted(text);
+    } catch (e: any) {
+      alert("❌ Çözme hatası: " + (e?.message ?? e));
+    }
   };
 
-  // RSA Fonksiyonları
+  const generateRandomPassword = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const pw = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    setPassword(pw);
+    alert("🔑 Rastgele parola oluşturuldu.");
+  };
+
+  // --- RSA handlers ---
   const handleGenerateRsaKeys = async () => {
     const keyPair = await generateRsaKeyPair();
     const publicKey = await exportRsaPublicKey(keyPair.publicKey);
     const privateKey = await exportRsaPrivateKey(keyPair.privateKey);
     setRsaPublicKey(publicKey);
     setRsaPrivateKey(privateKey);
-    alert("🔑 RSA anahtar çifti oluşturuldu!");
+    alert("🔑 RSA anahtar çifti oluşturuldu.");
   };
 
   const handleRsaEncrypt = async () => {
-    if (!rsaPublicKey) return alert("⚠️ Önce RSA anahtarları oluştur!");
-    if (!rsaPlainText) return alert("⚠️ Şifrelenecek metin gir!");
+    if (!rsaPublicKey) return alert("⚠️ Public key gir/oluştur.");
+    if (!rsaPlainText) return alert("⚠️ Metin gir.");
     try {
-      const publicKey = await importRsaPublicKey(rsaPublicKey);
-      const encrypted = await rsaEncrypt(rsaPlainText, publicKey);
-      setRsaCipherText(encrypted);
-    } catch (error) {
-      alert("❌ Şifreleme hatası: " + error);
+      const pub = await importRsaPublicKey(rsaPublicKey);
+      const ct = await rsaEncrypt(rsaPlainText, pub);
+      setRsaCipherText(ct);
+    } catch (e: any) {
+      alert("❌ RSA şifreleme hatası: " + (e?.message ?? e));
     }
   };
 
   const handleRsaDecrypt = async () => {
-    if (!rsaPrivateKey || !rsaCipherText) return alert("⚠️ Eksik veri!");
+    if (!rsaPrivateKey || !rsaCipherText) return alert("⚠️ Private key ve ciphertext gir.");
     try {
-      const privateKey = await importRsaPrivateKey(rsaPrivateKey);
-      const decrypted = await rsaDecrypt(rsaCipherText, privateKey);
-      setRsaDecryptedText(decrypted);
-    } catch (error) {
-      alert("❌ Şifre çözme hatası: " + error);
+      const priv = await importRsaPrivateKey(rsaPrivateKey);
+      const pt = await rsaDecrypt(rsaCipherText, priv);
+      setRsaDecryptedText(pt);
+    } catch (e: any) {
+      alert("❌ RSA çözme hatası: " + (e?.message ?? e));
     }
   };
 
-  // SHA-256 hash
+  // --- HASH ---
   const handleHash = async () => {
-    if (!hashText) return alert("⚠️ Hash edilecek metin gir!");
+    if (!hashText) return alert("⚠️ Hash edilecek metin gir.");
     const h = await sha256(hashText);
     setHash(h);
   };
 
+  // --- UI yardımcı stiller ---
   const tabStyle = (isActive: boolean) => ({
     padding: "10px 20px",
     backgroundColor: isActive ? "#007bff" : "#f8f9fa",
@@ -107,158 +139,156 @@ export default function App() {
     cursor: "pointer",
     borderRadius: "8px 8px 0 0"
   });
-
-  const containerStyle = {
-    padding: "20px",
-    fontFamily: "Arial, sans-serif",
-    maxWidth: "800px",
-    margin: "0 auto"
-  };
+  const box: React.CSSProperties = { border: "1px solid #dee2e6", padding: 16, borderRadius: 8 };
+  const containerStyle = { padding: "20px", fontFamily: "Arial, sans-serif", maxWidth: "1000px", margin: "0 auto" } as const;
 
   return (
     <div style={containerStyle}>
       <h1 style={{ textAlign: "center", color: "#333" }}>🔐 Şifreleme Araçları</h1>
-      
-      {/* Tab Navigation */}
+
+      {/* Sekmeler */}
       <div style={{ display: "flex", gap: "2px", marginBottom: "20px" }}>
-        <button 
-          style={tabStyle(activeTab === "aes")}
-          onClick={() => setActiveTab("aes")}
-        >
-          🔒 AES-GCM (Simetrik)
-        </button>
-        <button 
-          style={tabStyle(activeTab === "rsa")}
-          onClick={() => setActiveTab("rsa")}
-        >
-          🗝️ RSA (Asimetrik)
-        </button>
-        <button 
-          style={tabStyle(activeTab === "hash")}
-          onClick={() => setActiveTab("hash")}
-        >
-          #️⃣ SHA-256 Hash
-        </button>
+        <button style={tabStyle(activeTab === "aes")} onClick={() => setActiveTab("aes")}>🔒 Simetrik (AES)</button>
+        <button style={tabStyle(activeTab === "rsa")} onClick={() => setActiveTab("rsa")}>🗝️ RSA</button>
+        <button style={tabStyle(activeTab === "hash")} onClick={() => setActiveTab("hash")}>#️⃣ SHA-256</button>
       </div>
 
-      {/* Tab Content */}
-      <div style={{ border: "1px solid #dee2e6", padding: "20px", borderRadius: "0 8px 8px 8px" }}>
-        
+      <div style={{ border: "1px solid #dee2e6", padding: 20, borderRadius: "0 8px 8px 8px" }}>
         {activeTab === "aes" && (
           <div>
-            <h3>🔒 AES-GCM Şifreleme (Simetrik)</h3>
-            <p style={{ color: "#666", fontSize: "14px" }}>Aynı anahtar hem şifreleme hem şifre çözme için kullanılır.</p>
-            
-            <div style={{ marginBottom: "15px" }}>
-              <button onClick={handleGenerateAesKey} style={{ marginRight: "10px", padding: "8px 15px" }}>
-                🔑 Anahtar Oluştur
-              </button>
+            <h3>🔒 Simetrik Şifreleme</h3>
+            <p style={{ color: "#666", fontSize: 14 }}>
+              Algoritma seç → parola gir → solda şifrele, sağda çöz. Çıktılar base64’tür. GCM (IV=12B), CBC/CTR (IV=16B).
+            </p>
+
+            {/* Algoritma & Parola */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+              <select value={algo} onChange={(e) => setAlgo(e.target.value as Algo)}>
+                <option value="AES-GCM">AES-GCM</option>
+                <option value="AES-CBC">AES-CBC</option>
+                <option value="AES-CTR">AES-CTR</option>
+              </select>
               <input
                 type="text"
-                placeholder="Base64 AES Anahtarı"
-                value={aesKeyBase64}
-                onChange={(e) => setAesKeyBase64(e.target.value)}
-                style={{ width: "100%", padding: "8px", marginTop: "5px" }}
+                placeholder="Parola"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ flex: 1, padding: 8 }}
               />
+              <button onClick={generateRandomPassword} style={{ padding: "8px 12px" }}>🎲 Rastgele Parola</button>
             </div>
 
-            <textarea
-              placeholder="Şifrelenecek metin..."
-              value={aesPlainText}
-              onChange={(e) => setAesPlainText(e.target.value)}
-              style={{ width: "100%", height: "80px", marginBottom: "10px" }}
-            />
+            {/* İki panel: Şifrele / Çöz */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {/* Şifrele */}
+              <section style={box}>
+                <h4>Şifrele</h4>
+                <textarea
+                  placeholder="Şifrelenecek metin…"
+                  value={plain}
+                  onChange={(e) => setPlain(e.target.value)}
+                  style={{ width: "100%", height: 100, marginBottom: 8 }}
+                />
+                <button onClick={handleEncrypt} style={{ padding: "8px 12px" }}>🔒 Şifrele</button>
 
-            <div style={{ marginBottom: "15px" }}>
-              <button onClick={handleAesEncrypt} style={{ marginRight: "10px", padding: "8px 15px" }}>
-                🔒 Şifrele
-              </button>
-              <button onClick={handleAesDecrypt} style={{ padding: "8px 15px" }}>
-                🔓 Çöz
-              </button>
+                {encCiphertext && (
+                  <>
+                    <h5 style={{ marginTop: 12 }}>Ciphertext (base64)</h5>
+                    <textarea readOnly value={encCiphertext} style={{ width: "100%", height: 70 }} />
+                    <h5>IV (base64)</h5>
+                    <input readOnly value={encIv} style={{ width: "100%" }} />
+                    <h5>Salt (base64)</h5>
+                    <input readOnly value={encSalt} style={{ width: "100%" }} />
+                  </>
+                )}
+              </section>
+
+              {/* Çöz */}
+              <section style={box}>
+                <h4>Çöz</h4>
+                <label>Ciphertext (base64)</label>
+                <textarea
+                  value={decCiphertext}
+                  onChange={(e) => setDecCiphertext(e.target.value)}
+                  style={{ width: "100%", height: 70, marginBottom: 8 }}
+                />
+                <label>IV (base64)</label>
+                <input
+                  value={decIv}
+                  onChange={(e) => setDecIv(e.target.value)}
+                  style={{ width: "100%", marginBottom: 8 }}
+                />
+                <label>Salt (base64)</label>
+                <input
+                  value={decSalt}
+                  onChange={(e) => setDecSalt(e.target.value)}
+                  style={{ width: "100%", marginBottom: 8 }}
+                />
+                <button onClick={handleDecrypt} style={{ padding: "8px 12px" }}>🔓 Çöz</button>
+
+                {decrypted && (
+                  <>
+                    <h5 style={{ marginTop: 12 }}>Düz Metin</h5>
+                    <textarea readOnly value={decrypted} style={{ width: "100%", height: 70 }} />
+                  </>
+                )}
+              </section>
             </div>
-
-            {aesCipherText && (
-              <div style={{ marginBottom: "15px" }}>
-                <h4>📦 Şifrelenmiş Veri:</h4>
-                <textarea readOnly value={aesCipherText} style={{ width: "100%", height: "60px" }} />
-              </div>
-            )}
-
-            {aesIv && (
-              <div style={{ marginBottom: "15px" }}>
-                <h4>🎲 IV (Initialization Vector):</h4>
-                <input readOnly value={aesIv} style={{ width: "100%" }} />
-              </div>
-            )}
-
-            {aesDecryptedText && (
-              <div>
-                <h4>✅ Çözülmüş Metin:</h4>
-                <textarea readOnly value={aesDecryptedText} style={{ width: "100%", height: "60px" }} />
-              </div>
-            )}
           </div>
         )}
 
         {activeTab === "rsa" && (
           <div>
-            <h3>🗝️ RSA Şifreleme (Asimetrik)</h3>
-            <p style={{ color: "#666", fontSize: "14px" }}>
-              Public key ile şifrelenir, private key ile çözülür. Anahtar çifti gerekir.
-            </p>
-            
-            <button onClick={handleGenerateRsaKeys} style={{ padding: "8px 15px", marginBottom: "15px" }}>
+            <h3>🗝️ RSA (OAEP/SHA-256)</h3>
+            <p style={{ color: "#666", fontSize: 14 }}>Public key ile şifrele, private key ile çöz.</p>
+
+            <button onClick={handleGenerateRsaKeys} style={{ padding: "8px 12px", marginBottom: 12 }}>
               🔑 RSA Anahtar Çifti Oluştur
             </button>
 
-            <div style={{ marginBottom: "15px" }}>
-              <h4>🔓 Public Key (Şifreleme için):</h4>
-              <textarea 
+            <div style={{ marginBottom: 12 }}>
+              <h4>🔓 Public Key</h4>
+              <textarea
                 value={rsaPublicKey}
                 onChange={(e) => setRsaPublicKey(e.target.value)}
-                style={{ width: "100%", height: "60px", fontSize: "12px" }}
-                placeholder="Public key buraya yapıştırılabilir..."
+                style={{ width: "100%", height: 70, fontSize: 12 }}
+                placeholder="Public key (PEM)"
               />
             </div>
 
-            <div style={{ marginBottom: "15px" }}>
-              <h4>🔒 Private Key (Çözme için - GİZLİ!):</h4>
-              <textarea 
+            <div style={{ marginBottom: 12 }}>
+              <h4>🔒 Private Key (Gizli)</h4>
+              <textarea
                 value={rsaPrivateKey}
                 onChange={(e) => setRsaPrivateKey(e.target.value)}
-                style={{ width: "100%", height: "60px", fontSize: "12px", backgroundColor: "#ffe6e6" }}
-                placeholder="Private key buraya yapıştırılabilir..."
+                style={{ width: "100%", height: 70, fontSize: 12, backgroundColor: "#ffe6e6" }}
+                placeholder="Private key (PEM)"
               />
             </div>
 
             <textarea
-              placeholder="RSA ile şifrelenecek metin (max ~190 karakter)..."
+              placeholder="RSA ile şifrelenecek metin…"
               value={rsaPlainText}
               onChange={(e) => setRsaPlainText(e.target.value)}
-              style={{ width: "100%", height: "80px", marginBottom: "10px" }}
+              style={{ width: "100%", height: 90, marginBottom: 10 }}
             />
 
-            <div style={{ marginBottom: "15px" }}>
-              <button onClick={handleRsaEncrypt} style={{ marginRight: "10px", padding: "8px 15px" }}>
-                🔒 RSA Şifrele
-              </button>
-              <button onClick={handleRsaDecrypt} style={{ padding: "8px 15px" }}>
-                🔓 RSA Çöz
-              </button>
+            <div style={{ marginBottom: 12 }}>
+              <button onClick={handleRsaEncrypt} style={{ marginRight: 10, padding: "8px 12px" }}>🔒 RSA Şifrele</button>
+              <button onClick={handleRsaDecrypt} style={{ padding: "8px 12px" }}>🔓 RSA Çöz</button>
             </div>
 
             {rsaCipherText && (
-              <div style={{ marginBottom: "15px" }}>
-                <h4>📦 RSA Şifrelenmiş Veri:</h4>
-                <textarea readOnly value={rsaCipherText} style={{ width: "100%", height: "80px" }} />
+              <div style={{ marginBottom: 12 }}>
+                <h4>📦 RSA Ciphertext (base64)</h4>
+                <textarea readOnly value={rsaCipherText} style={{ width: "100%", height: 80 }} />
               </div>
             )}
 
             {rsaDecryptedText && (
               <div>
-                <h4>✅ RSA Çözülmüş Metin:</h4>
-                <textarea readOnly value={rsaDecryptedText} style={{ width: "100%", height: "60px" }} />
+                <h4>✅ RSA Çözülmüş Metin</h4>
+                <textarea readOnly value={rsaDecryptedText} style={{ width: "100%", height: 60 }} />
               </div>
             )}
           </div>
@@ -267,24 +297,21 @@ export default function App() {
         {activeTab === "hash" && (
           <div>
             <h3>#️⃣ SHA-256 Hash</h3>
-            <p style={{ color: "#666", fontSize: "14px" }}>
-              Tek yönlü hash fonksiyonu. Aynı metin her zaman aynı hash'i verir, geri çevrilemez.
-            </p>
-            
+            <p style={{ color: "#666", fontSize: 14 }}>Tek yönlü hash. Aynı girdi → aynı çıktı; geri dönüşü yok.</p>
+
             <textarea
-              placeholder="Hash edilecek metin..."
+              placeholder="Hash edilecek metin…"
               value={hashText}
               onChange={(e) => setHashText(e.target.value)}
-              style={{ width: "100%", height: "80px", marginBottom: "10px" }}
+              style={{ width: "100%", height: 90, marginBottom: 10 }}
             />
-
-            <button onClick={handleHash} style={{ padding: "8px 15px", marginBottom: "15px" }}>
+            <button onClick={handleHash} style={{ padding: "8px 12px", marginBottom: 12 }}>
               #️⃣ SHA-256 Hash Oluştur
             </button>
 
             {hash && (
               <div>
-                <h4>🔗 SHA-256 Hash:</h4>
+                <h4>🔗 SHA-256 (hex)</h4>
                 <input readOnly value={hash} style={{ width: "100%", fontFamily: "monospace" }} />
               </div>
             )}
