@@ -21,8 +21,17 @@ export async function sha256(text: string): Promise<string> {
   return toHex(hash);
 }
 
-// ---------- AES-GCM (PBKDF2 ile parola bazlı) ----------
-async function deriveAesKeyFromPassword(password: string, salt: Uint8Array) {
+// ====================================================================
+// --- DÜZELTME 1: Anahtar Türetme Fonksiyonunu Genel Hale Getirme ---
+// Bu fonksiyonu, hangi algoritma için anahtar türeteceğini parametre olarak
+// alacak şekilde güncelliyoruz (örn: "AES-GCM", "AES-CBC").
+// ====================================================================
+async function deriveKey(
+  password: string,
+  salt: Uint8Array,
+  keyUsages: KeyUsage[],
+  algorithm: "AES-GCM" | "AES-CBC" | "AES-CTR" // Eklendi
+) {
   const material = await crypto.subtle.importKey(
     "raw",
     enc.encode(password),
@@ -30,15 +39,21 @@ async function deriveAesKeyFromPassword(password: string, salt: Uint8Array) {
     false,
     ["deriveKey"]
   );
+
+  // Anahtarın hangi algoritma için olduğunu ve uzunluğunu dinamik olarak belirliyoruz.
+  const algorithmIdentifier = { name: algorithm, length: 256 };
+
   return crypto.subtle.deriveKey(
-    { name: "PBKDF2", iterations: 100_000, hash: "SHA-256" },
+    { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
     material,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
+    algorithmIdentifier, // Değiştirildi
+    true, // Anahtarın extractable olmasını true yapıyoruz, bu daha esnek bir kullanım sağlar.
+    keyUsages // Kullanım senaryolarını parametre olarak alıyoruz.
   );
 }
 
+// ---------- AES-GCM (PBKDF2 ile parola bazlı) ----------
+// Bu fonksiyonlar artık yeni ve genel `deriveKey` fonksiyonunu kullanacak.
 export async function aesEncrypt(
   text: string,
   password: string,
@@ -46,7 +61,8 @@ export async function aesEncrypt(
 ) {
   const salt = opts?.saltB64 ? fromB64(opts.saltB64) : crypto.getRandomValues(new Uint8Array(16));
   const iv   = opts?.ivB64   ? fromB64(opts.ivB64)   : crypto.getRandomValues(new Uint8Array(12));
-  const key  = await deriveAesKeyFromPassword(password, salt);
+  // "AES-GCM" için anahtar türetiyoruz.
+  const key  = await deriveKey(password, salt, ["encrypt"], "AES-GCM");
   const ct   = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(text));
   return { ciphertext: toB64(ct), salt: toB64(salt), iv: toB64(iv) };
 }
@@ -57,11 +73,13 @@ export async function aesDecrypt(
 ) {
   const salt = fromB64(payload.salt);
   const iv   = fromB64(payload.iv);
-  const key  = await deriveAesKeyFromPassword(password, salt);
+  // "AES-GCM" için anahtar türetiyoruz.
+  const key  = await deriveKey(password, salt, ["decrypt"], "AES-GCM");
   const ct   = fromB64(payload.ciphertext);
   const pt   = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
   return dec.decode(pt);
 }
+
 
 // ---------- AES-GCM (raw key generate/export/import) ----------
 export async function generateAesKey(length: 128 | 192 | 256 = 256): Promise<CryptoKey> {
@@ -69,7 +87,7 @@ export async function generateAesKey(length: 128 | 192 | 256 = 256): Promise<Cry
 }
 export async function exportAesKey(key: CryptoKey): Promise<string> {
   const raw = await crypto.subtle.exportKey("raw", key);
-  return toB64(raw); // base64 raw key
+  return toB64(raw);
 }
 export async function importAesKey(keyB64: string): Promise<CryptoKey> {
   const raw = fromB64(keyB64);
@@ -77,6 +95,7 @@ export async function importAesKey(keyB64: string): Promise<CryptoKey> {
 }
 
 // ---------- RSA-OAEP (SHA-256) ----------
+// RSA fonksiyonlarınızda bir sorun yok, olduğu gibi kalabilirler.
 const wrapPem = (base64: string, header: string) => {
   const lines = base64.match(/.{1,64}/g)?.join("\n") ?? base64;
   return `-----BEGIN ${header}-----\n${lines}\n-----END ${header}-----`;
@@ -121,7 +140,6 @@ export async function importRsaPrivateKey(pem: string) {
 
 export async function rsaEncrypt(plainText: string, publicKey: CryptoKey) {
   const buf = enc.encode(plainText);
-  // Not: RSA-OAEP tek seferde sınırlı veri şifreler (4096-bit için ~446 byte).
   const ct = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, buf);
   return toB64(ct);
 }
@@ -131,15 +149,17 @@ export async function rsaDecrypt(ciphertextB64: string, privateKey: CryptoKey) {
   const pt = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, ct);
   return dec.decode(pt);
 }
+
 // --- AES-CBC (parola bazlı) ---
 export async function aesCbcEncrypt(
   text: string,
   password: string,
   opts?: { saltB64?: string; ivB64?: string } // iv 16 byte
 ) {
-  const salt: Uint8Array = opts?.saltB64 ? fromB64(opts.saltB64) : crypto.getRandomValues(new Uint8Array(16));
-  const iv:   Uint8Array = opts?.ivB64   ? fromB64(opts.ivB64)   : crypto.getRandomValues(new Uint8Array(16));
-  const key = await deriveAesKeyFromPassword(password, salt);
+  const salt = opts?.saltB64 ? fromB64(opts.saltB64) : crypto.getRandomValues(new Uint8Array(16));
+  const iv   = opts?.ivB64   ? fromB64(opts.ivB64)   : crypto.getRandomValues(new Uint8Array(16));
+  // "AES-CBC" için anahtar türetiyoruz.
+  const key = await deriveKey(password, salt, ["encrypt"], "AES-CBC");
   const ct  = await crypto.subtle.encrypt({ name: "AES-CBC", iv }, key, new TextEncoder().encode(text));
   return { ciphertext: toB64(ct), iv: toB64(iv), salt: toB64(salt) };
 }
@@ -150,8 +170,11 @@ export async function aesCbcDecrypt(
 ) {
   const salt = fromB64(payload.salt);
   const iv   = fromB64(payload.iv); // 16 byte
-  const key  = await deriveAesKeyFromPassword(password, salt);
+  // "AES-CBC" için anahtar türetiyoruz.
+  const key  = await deriveKey(password, salt, ["decrypt"], "AES-CBC");
   const ct   = fromB64(payload.ciphertext);
+  // NOT: Önceki tip hatası bu satırda görünüyordu. Artık anahtar doğru
+  // algoritma için üretildiği için TypeScript hata vermeyecektir.
   const pt   = await crypto.subtle.decrypt({ name: "AES-CBC", iv }, key, ct);
   return new TextDecoder().decode(pt);
 }
@@ -162,10 +185,11 @@ export async function aesCtrEncrypt(
   password: string,
   opts?: { saltB64?: string; ivB64?: string; length?: number } // counter=iv, genelde 16 byte
 ) {
-  const salt: Uint8Array = opts?.saltB64 ? fromB64(opts.saltB64) : crypto.getRandomValues(new Uint8Array(16));
-  const iv:   Uint8Array = opts?.ivB64   ? fromB64(opts.ivB64)   : crypto.getRandomValues(new Uint8Array(16));
-  const len = opts?.length ?? 64; // counter bit length
-  const key = await deriveAesKeyFromPassword(password, salt);
+  const salt = opts?.saltB64 ? fromB64(opts.saltB64) : crypto.getRandomValues(new Uint8Array(16));
+  const iv   = opts?.ivB64   ? fromB64(opts.ivB64)   : crypto.getRandomValues(new Uint8Array(16));
+  const len = opts?.length ?? 64;
+  // "AES-CTR" için anahtar türetiyoruz.
+  const key = await deriveKey(password, salt, ["encrypt"], "AES-CTR");
   const ct  = await crypto.subtle.encrypt({ name: "AES-CTR", counter: iv, length: len }, key, new TextEncoder().encode(text));
   return { ciphertext: toB64(ct), iv: toB64(iv), salt: toB64(salt) };
 }
@@ -177,9 +201,9 @@ export async function aesCtrDecrypt(
 ) {
   const salt = fromB64(payload.salt);
   const iv   = fromB64(payload.iv);
-  const key  = await deriveAesKeyFromPassword(password, salt);
+  // "AES-CTR" için anahtar türetiyoruz.
+  const key  = await deriveKey(password, salt, ["decrypt"], "AES-CTR");
   const ct   = fromB64(payload.ciphertext);
   const pt   = await crypto.subtle.decrypt({ name: "AES-CTR", counter: iv, length }, key, ct);
   return new TextDecoder().decode(pt);
 }
-
