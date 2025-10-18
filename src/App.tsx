@@ -1,9 +1,9 @@
 import { useState } from "react";
 import {
   // AES varyantları (crypto.ts’de ekledik)
-  aesEncrypt, aesDecrypt,            // AES-GCM (parola bazlı)
-  aesCbcEncrypt, aesCbcDecrypt,      // AES-CBC  (parola bazlı)
-  aesCtrEncrypt, aesCtrDecrypt,      // AES-CTR  (parola bazlı)
+  aesEncrypt, aesDecrypt,              // AES-GCM (parola bazlı)
+  aesCbcEncrypt, aesCbcDecrypt,        // AES-CBC  (parola bazlı)
+  aesCtrEncrypt, aesCtrDecrypt,        // AES-CTR  (parola bazlı)
 
   // RSA & Hash
   generateRsaKeyPair, exportRsaPublicKey, exportRsaPrivateKey,
@@ -140,10 +140,11 @@ export default function App() {
     borderRadius: "8px 8px 0 0"
   });
   const box: React.CSSProperties = { border: "1px solid #dee2e6", padding: 16, borderRadius: 8 };
-  const containerStyle = { padding: "20px", fontFamily: "Arial, sans-serif", maxWidth: "1000px", margin: "0 auto" } as const;
+  // DEĞİŞİKLİK 1: containerStyle sabitini sildik.
 
   return (
-    <div style={containerStyle}>
+    // DEĞİŞİKLİK 2: style={containerStyle} yerine className="main-container" kullandık
+    <div className="main-container">
       <h1 style={{ textAlign: "center", color: "#333" }}>🔐 Şifreleme Araçları</h1>
 
       {/* Sekmeler */}
@@ -153,7 +154,7 @@ export default function App() {
         <button style={tabStyle(activeTab === "hash")} onClick={() => setActiveTab("hash")}>#️⃣ SHA-256</button>
       </div>
 
-      <div style={{ border: "1px solid #dee2e6", padding: 20, borderRadius: "0 8px 8px 8px" }}>
+      <div style={{ border: "1px solid #dee2e6", padding: 20, borderRadius: "0 8px 8px 8px", width: "100%", maxWidth: "1000px" }}>
         {activeTab === "aes" && (
           <div>
             <h3>🔒 Simetrik Şifreleme</h3>
@@ -321,4 +322,3 @@ export default function App() {
     </div>
   );
 }
- 

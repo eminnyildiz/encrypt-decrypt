@@ -1,3 +1,15 @@
+.main-container {
+  display: flex;
+  flex-direction: column; /* Öğeleri dikey olarak (alt alta) sıralar */
+  align-items: center;     /* Öğeleri yatay eksende ortalar */
+  
+  /* İsteğe bağlı: Sayfanın en azından tüm yüksekliğini kaplaması için */
+  min-height: 100vh;
+  
+  /* İsteğe bağlı: İçeriğin üst kenara yapışmaması için */
+  padding-top: 2rem; 
+}
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
